@@ -1,0 +1,87 @@
+# MICRO II Division by Repeated Subtraction
+# Divides DIVIDEND by DIVISOR, stores result in QUOTIENT and REMAINDER
+# Example: 20 ÷ 3 = 6 remainder 2
+
+        ORG 0
+        
+# Initialize
+        CLR                 # Clear accumulator  
+        STR QUOTIENT        # Initialize quotient to 0
+        ADD DIVIDEND        # Load dividend
+        STR REMAINDER       # Initialize remainder = dividend
+
+# Main division loop
+DIVLOOP:
+        CLR                 # Clear accumulator
+        ADD REMAINDER       # Load current remainder
+        
+        # Subtract divisor using two's complement addition
+        # remainder = remainder - divisor
+        # First, calculate -divisor = ~divisor + 1
+        CMP                 # Complement remainder 
+        ADD 1               # Add 1 to complete negation: now AC = -remainder
+        ADD DIVISOR         # Add divisor: AC = divisor - remainder  
+        
+        # Check if divisor > remainder (subtraction would be negative)
+        SNA                 # Skip next if AC is non-negative (divisor >= remainder)
+        JMP DONE            # If negative, divisor > remainder, we're done
+        
+        # If we get here, remainder >= divisor, so continue
+        CLR                 # Clear accumulator
+        ADD REMAINDER       # Load remainder again
+        
+        # Now actually subtract: remainder = remainder - divisor
+        STR TEMP            # Save remainder
+        CMP                 # Complement remainder
+        ADD 1               # Complete two's complement: AC = -remainder
+        ADD DIVISOR         # Add divisor: AC = divisor - remainder = -(remainder - divisor)
+        CMP                 # Complement again: AC = remainder - divisor  
+        STR REMAINDER       # Store new remainder
+        
+        # Increment quotient
+        CLR                 # Clear accumulator
+        ADD QUOTIENT        # Load quotient
+        ADD ONE             # Add 1
+        STR QUOTIENT        # Store incremented quotient
+        
+        JMP DIVLOOP         # Continue loop
+
+DONE:
+        # Division complete
+        # Quotient is in QUOTIENT
+        # Remainder is in REMAINDER
+        HLT                 # Halt program
+
+# Data section
+        ORG 20
+DIVIDEND:   DATA 20         # Number to divide (20)
+DIVISOR:    DATA 3          # Divide by this (3)
+QUOTIENT:   DATA 0          # Result quotient (will be 6)
+REMAINDER:  DATA 0          # Result remainder (will be 2)
+ONE:        DATA 1          # Constant 1
+TEMP:       DATA 0          # Temporary storage
+
+# Alternative: Simple division by 2 using rotate
+        ORG 30
+DIV_BY_2:
+        CLR                 # Clear accumulator
+        ADD NUMBER          # Load number to divide
+        RTR                 # Rotate right (divide by 2)
+        STR RESULT          # Store result
+        HLT
+
+NUMBER:     DATA 42         # Example: 42 ÷ 2 = 21
+RESULT:     DATA 0          # Will contain 21
+
+# Division by powers of 2 (more efficient)
+        ORG 40  
+DIV_BY_4:
+        CLR                 # Clear accumulator
+        ADD VALUE           # Load value
+        RTR                 # Divide by 2
+        RTR                 # Divide by 2 again (total: ÷4)
+        STR ANSWER          # Store result
+        HLT
+
+VALUE:      DATA 80         # Example: 80 ÷ 4 = 20  
+ANSWER:     DATA 0          # Will contain 20
