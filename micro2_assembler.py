@@ -1,12 +1,13 @@
 """
 MICRO II Computer Assembler
 Converts assembly-like text to binary machine code.
+Now supports ORG directive for setting assembly address.
 """
 
 import re
 
 class MICRO2_Assembler:
-    def __init__(self):
+    def __init__(self, memory_size=256):
         # Instruction opcodes
         self.memory_ref_opcodes = {
             'JMP': 0b00,
@@ -36,6 +37,7 @@ class MICRO2_Assembler:
             'OUT': 0b11110000
         }
         
+        self.memory_size = memory_size
         self.labels = {}
         self.errors = []
     
@@ -45,14 +47,29 @@ class MICRO2_Assembler:
         self.errors = []
         
         lines = self._preprocess(source_code)
-        machine_code = []
+        sparse_code = {}  # Use dictionary internally for ORG support
         
-        # First pass: collect labels
+        # First pass: collect labels and handle ORG directives
         address = 0
         for line_num, line in enumerate(lines):
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
+                
+            # Handle ORG directive
+            if line.upper().startswith('ORG'):
+                try:
+                    parts = line.split()
+                    if len(parts) != 2:
+                        self.errors.append(f"Line {line_num + 1}: ORG requires one address")
+                        continue
+                    address = self._parse_address_value(parts[1])
+                    if address >= self.memory_size:
+                        self.errors.append(f"Line {line_num + 1}: ORG address {address} exceeds memory size {self.memory_size}")
+                    continue
+                except Exception as e:
+                    self.errors.append(f"Line {line_num + 1}: ORG error - {e}")
+                    continue
                 
             if ':' in line and not line.startswith(' '):
                 # Label definition
@@ -61,9 +78,10 @@ class MICRO2_Assembler:
                 
                 # Check if there's an instruction on the same line
                 remainder = line.split(':', 1)[1].strip()
-                if remainder:
+                if remainder and not remainder.upper().startswith('ORG'):
                     address += 1
             else:
+                # Regular instruction
                 address += 1
         
         # Second pass: generate machine code
@@ -75,6 +93,15 @@ class MICRO2_Assembler:
             if not line or line.startswith('#'):
                 continue
             
+            # Handle ORG directive
+            if line.upper().startswith('ORG'):
+                try:
+                    parts = line.split()
+                    address = self._parse_address_value(parts[1])
+                    continue
+                except:
+                    continue  # Error already recorded in first pass
+            
             # Handle labels
             if ':' in line and not line.startswith(' '):
                 parts = line.split(':', 1)
@@ -82,18 +109,46 @@ class MICRO2_Assembler:
                     line = parts[1].strip()
                 else:
                     continue
-            # remove comment from code if it exists
-            line = line.split('#', 1)[0]
+            
+            # Remove comment from code if it exists
+            line = line.split('#', 1)[0].strip()
+            if not line:
+                continue
+                
             try:
+                if address >= self.memory_size:
+                    self.errors.append(f"Line {line_num + 1}: Address {address} exceeds memory size {self.memory_size}")
+                    continue
+                    
                 instruction = self._parse_instruction(line, address, line_num + 1)
-                machine_code.append(instruction)
+                sparse_code[address] = instruction
                 address += 1
             except AssemblyError as e:
                 self.errors.append(f"Line {line_num + 1}: {e}")
-                machine_code.append(0)  # Insert NOP for error
+                sparse_code[address] = 0  # Insert NOP for error
                 address += 1
         
+        # Convert sparse dictionary back to list format for backward compatibility
+        if sparse_code:
+            max_address = max(sparse_code.keys())
+            machine_code = [0] * (max_address + 1)  # Initialize with zeros
+            for addr, instruction in sparse_code.items():
+                machine_code[addr] = instruction
+        else:
+            machine_code = []
+        
         return machine_code, self.errors
+    
+    def _parse_address_value(self, operand):
+        """Parse address value for ORG directive"""
+        if operand.upper().startswith('0X'):
+            return int(operand, 16)
+        elif operand.upper().startswith('0B'):
+            return int(operand, 2)
+        elif operand.isdigit():
+            return int(operand)
+        else:
+            raise AssemblyError(f"Invalid address value: {operand}")
     
     def _preprocess(self, source_code):
         """Preprocess source code - remove extra whitespace, etc."""
@@ -157,10 +212,6 @@ class MICRO2_Assembler:
                 raise AssemblyError("DATA requires one value")
             return self._parse_data_value(parts[1])
         
-        # Origin directive (sets assembly address)
-        elif mnemonic == 'ORG':
-            raise AssemblyError("ORG directive not supported in this context")
-        
         else:
             raise AssemblyError(f"Unknown instruction: {mnemonic}")
     
@@ -179,9 +230,9 @@ class MICRO2_Assembler:
         # Parse the address
         if operand in self.labels:
             addr = self.labels[operand]
-        elif operand.startswith('0X') or operand.startswith('0x'):
+        elif operand.upper().startswith('0X'):
             addr = int(operand, 16)
-        elif operand.startswith('0B') or operand.startswith('0b'):
+        elif operand.upper().startswith('0B'):
             addr = int(operand, 2)
         elif operand.isdigit():
             addr = int(operand)
@@ -200,9 +251,9 @@ class MICRO2_Assembler:
     
     def _parse_device_address(self, operand):
         """Parse device address (0-7)"""
-        if operand.startswith('0X') or operand.startswith('0x'):
+        if operand.upper().startswith('0X'):
             addr = int(operand, 16)
-        elif operand.startswith('0B') or operand.startswith('0b'):
+        elif operand.upper().startswith('0B'):
             addr = int(operand, 2)
         elif operand.isdigit():
             addr = int(operand)
@@ -216,9 +267,9 @@ class MICRO2_Assembler:
     
     def _parse_data_value(self, operand):
         """Parse data value"""
-        if operand.startswith('0X') or operand.startswith('0x'):
+        if operand.upper().startswith('0X'):
             value = int(operand, 16)
-        elif operand.startswith('0B') or operand.startswith('0b'):
+        elif operand.upper().startswith('0B'):
             value = int(operand, 2)
         elif operand.isdigit():
             value = int(operand)
@@ -261,12 +312,12 @@ class MICRO2_Assembler:
             
             # Indirect address pointers
             ORG 16
-            DATA 128     # Points to address 128
-            DATA 129     # Points to address 129
+            DATA 20      # Points to address 20 (changed from 128 to fit 5-bit limit)
+            DATA 21      # Points to address 21 (changed from 129 to fit 5-bit limit)
             DATA 0       # Result storage
             
             # Actual data at indirect addresses
-            ORG 128
+            ORG 20
             DATA 35      # First number
             DATA 120     # Second number
         """
@@ -297,6 +348,25 @@ class MICRO2_Assembler:
             HLT          # Halt
         """
         
+        # Test ORG with gaps
+        programs['org_test'] = """
+            # Test ORG directive with memory gaps
+            ORG 0
+            CLR          # Start at address 0
+            ADD 50       # Add from address 50
+            STR 100      # Store at address 100
+            HLT
+            
+            ORG 50       # Jump to address 50
+            DATA 42      # Some data
+            
+            ORG 100      # Jump to address 100  
+            DATA 0       # Result storage
+            
+            ORG 200      # Jump way ahead
+            DATA 99      # More data
+        """
+        
         return programs
 
 
@@ -305,13 +375,80 @@ class AssemblyError(Exception):
     pass
 
 
-def format_machine_code(machine_code):
-    """Format machine code for display"""
+def format_machine_code(machine_code, memory_size=256):
+    """Format machine code for display - handles sparse memory"""
+    if isinstance(machine_code, dict):
+        # Sort by address for display
+        sorted_addresses = sorted(machine_code.keys())
+        
+        lines = []
+        lines.append("Addr Binary   Hex Dec")
+        lines.append("-" * 18)
+        
+        for addr in sorted_addresses:
+            instruction = machine_code[addr]
+            lines.append(f"{addr:02X}: {instruction:08b} {instruction:02X}  {instruction:3d}")
+        
+        return "\n".join(lines)
+    else:
+        # Handle old format (list)
+        lines = []
+        lines.append("Addr Binary   Hex Dec")
+        lines.append("-" * 18)
+        
+        for addr, instruction in enumerate(machine_code):
+            lines.append(f"{addr:02X}: {instruction:08b} {instruction:02X}  {instruction:3d}")
+        
+        return "\n".join(lines)
+
+
+def format_full_memory(machine_code, memory_size=256):
+    """Format complete memory map showing gaps"""
     lines = []
-    lines.append("Addr Binary   Hex Dec")
-    lines.append("-" * 18)
+    lines.append(f"Complete Memory Map (0-{memory_size-1}):")
+    lines.append("Addr Binary   Hex Dec  ASCII")
+    lines.append("-" * 26)
     
-    for addr, instruction in enumerate(machine_code):
-        lines.append(f"{addr:02X}: {instruction:08b} {instruction:02X}  {instruction:3d}")
+    for addr in range(memory_size):
+        if addr in machine_code:
+            instruction = machine_code[addr]
+            ascii_char = chr(instruction) if 32 <= instruction <= 126 else '.'
+            lines.append(f"{addr:02X}: {instruction:08b} {instruction:02X}  {instruction:3d}  '{ascii_char}'")
+        else:
+            lines.append(f"{addr:02X}: -------- --  ---")
     
     return "\n".join(lines)
+
+
+# Test the assembler
+if __name__ == "__main__":
+    assembler = MICRO2_Assembler()
+    programs = assembler.create_sample_programs()
+    
+    print("Testing MICRO II Assembler with ORG support\n")
+    
+    for name, program in programs.items():
+        print(f"=== {name.upper()} PROGRAM ===")
+        print("Source code:")
+        print(program)
+        print()
+        
+        machine_code, errors = assembler.assemble(program)
+        
+        if errors:
+            print("ERRORS:")
+            for error in errors:
+                print(f"  {error}")
+            print()
+        
+        print("Machine code:")
+        print(format_machine_code(machine_code))
+        print()
+        
+        if name == 'org_test':
+            print("Full memory map showing gaps:")
+            print(format_full_memory(machine_code, 50))  # Show first 50 bytes
+            print()
+        
+        print("-" * 50)
+        print()
