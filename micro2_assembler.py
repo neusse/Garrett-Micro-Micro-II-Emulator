@@ -82,7 +82,8 @@ class MICRO2_Assembler:
                     line = parts[1].strip()
                 else:
                     continue
-            
+            # remove comment from code if it exists
+            line = line.split('#', 1)[0]
             try:
                 instruction = self._parse_instruction(line, address, line_num + 1)
                 machine_code.append(instruction)
